@@ -1,0 +1,11 @@
+# Don't Upléoad files in "files" Folder
+files
+files/
+files/*
+files/**
+
+# Don't Upléoad files in "models" Folder
+models
+models/
+models/*
+models/**

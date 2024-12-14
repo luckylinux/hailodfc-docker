@@ -1,0 +1,98 @@
+FROM python:3.10-bookworm
+
+ARG TARGETPLATFORM
+#ARG BUILDPLATFORM
+
+# App Path
+ARG APP_PATH="/opt/app"
+
+# Virtual Environment Path
+ARG VENV_PATH="/opt/venv"
+
+# Host Mount Path
+ARG HOST_MOUNT_PATH="/opt/src"
+
+# Hailo DFC Version
+ARG HAILO_DFC_VERSION="3.29.0"
+
+# Hailo DFC Whell
+ARG HAILO_DFC_WHEEL="hailo_dataflow_compiler-${HAILO_DFC_VERSION}-py3-none-linux_x86_64.whl"
+
+# Create Directory for App and Venv
+RUN mkdir -p "/opt"
+RUN mkdir -p "${APP_PATH}"
+RUN mkdir -p "${VENV_PATH}"
+
+# Change Directory
+WORKDIR "${APP_PATH}"
+
+# Copy Sources
+COPY app/ "${APP_PATH}"
+
+# Add APT Configuration for more recent (testing) Packages
+# Change Directory
+WORKDIR "/etc"
+
+# Copy sources.list.d and preferences.d Files
+# ONLY NEEDED WHEN USING APT PINNING with Debian Stable as a Base
+# ADD etc /etc/
+
+# Change Workdir Back to App Folder
+WORKDIR "${APP_PATH}"
+
+# Use Cache (Keep downloaded Files)
+# They are stored in the Cache directory, NOT in the final Container Image
+RUN rm -f /etc/apt/apt.conf.d/docker-clean; echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' > /etc/apt/apt.conf.d/keep-cache
+
+# Update Sources
+# Install other Dependencies / recommended Packages
+RUN --mount=type=cache,mode=0777,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,mode=0777,target=/var/lib/apt,sharing=locked \
+    apt-get update && \
+    apt-get install --no-install-recommends -y ca-certificates bash curl wget && \
+    apt-get install --no-install-recommends -y python3 python3-pip python3-venv python3-dev python3-distutils graphviz libgraphviz-dev python3-tk && \ 
+    echo "Finished installing base Packages"
+
+# Change Shell
+RUN chsh -s /bin/bash root
+RUN export SHELL="/bin/bash"
+RUN ln -sf /bin/bash /bin/sh
+
+# set ENV to execute startup scripts
+ENV ENV /etc/profile
+
+# Change Directory and Copy requirements.txt
+WORKDIR "/opt"
+COPY requirements.txt "/opt/requirements.txt"
+
+# Create venv
+RUN python3 -m venv "${VENV_PATH}"
+
+# Set PATH Variable to include venv
+ENV PATH="${VENV_PATH}/bin:$PATH"
+
+# Activate venv
+RUN source "${VENV_PATH}/bin/activate"
+
+# Upgrade pip
+RUN python -m pip install --upgrade pip
+
+# Print Python Version
+RUN python --version
+
+# Change Working Directory
+WORKDIR /tmp
+
+# Install required Packages
+RUN --mount=type=cache,mode=0777,target=/var/lib/pip,sharing=locked \
+    pip install --cache-dir /var/lib/pip -r "/opt/requirements.txt"
+
+# Install Hailo DFC
+#COPY files/ "/tmp"
+RUN --mount=type=bind,target=${HOST_MOUNT_PATH} --mount=type=cache,mode=0777,target=/var/lib/pip,sharing=locked \
+    pip install --cache-dir /var/lib/pip ${HOST_MOUNT_PATH}/files/${HAILO_DFC_WHEEL}
+
+# Copy and Execute Entrypoint Script
+COPY docker-entrypoint.sh /opt/
+RUN chmod +x /opt/docker-entrypoint.sh
+ENTRYPOINT ["/opt/docker-entrypoint.sh"]
